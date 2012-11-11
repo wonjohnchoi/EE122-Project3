@@ -1,0 +1,15 @@
+#!/bin/bash
+
+TIME=5
+
+DIR="$( cd "$( dirname "$0" )" && pwd )"
+cd $DIR
+#cd pox
+
+while [ 1 ] ; do
+  ./pox.py eecore 2>&1 | tee -a /tmp/pox-run
+  echo
+  echo "Restarting POX in $TIME seconds.  Hit Ctrl-C to abort."
+  sleep $TIME
+  echo
+done
