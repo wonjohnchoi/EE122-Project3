@@ -4,37 +4,54 @@ from pox.lib.packet import *
 from pox.lib.recoco.recoco import Timer
 import re
 
+
 # Get a logger
 log = core.getLogger("fw")
 
 class Firewall (object):
+  """
+  Firewall class.
+  Extend this to implement some firewall functionality.
+  Don't change the name or anything -- the eecore component
+  expects it to be firewall.Firewall.
+  """
+  
   def __init__(self):
-    self.banned_ports = set()
-    self.banned_domains = set()
-    self.monitor_strings = dict()
+    """
+    Constructor.
+    Put your initialization code here.
+    """
+    self.bannedPorts = set()
+    bannedPortsFile = open('/root/pox/ext/banned-ports.txt', 'r')
+    for portNumber in bannedPortsFile:
+      self.bannedPorts.add(int(portNumber.rstrip()))
+    bannedPortsFile.close()
 
-    self.prev_packet = dict()
+    self.bannedDomains = set()
+    bannedDomainsFile = open('/root/pox/ext/banned-domains.txt', 'r')
+    for domain in bannedDomainsFile:
+      self.bannedDomains.add(str(domain.rstrip()))
+    bannedDomainsFile.close()
+
+    self.previousPacket = dict()
+    self.monitorStrings = dict()
     self.timers = dict()
+    monitoredStringsFile = open('/root/pox/ext/monitored-strings.txt', 'r')
+    for pair in monitoredStringsFile:
+      ip, mString = pair.split(':')
+      ip = str(ip)
+      if ip in self.monitorStrings.keys():
+        self.monitorStrings[ip][str(mString.rstrip())] = 0
+        self.previousPacket[ip][str(mString.rstrip())] = ""
+      else:
+        newDict = dict()
+        packetDict = dict()
+        newDict[str(mString.rstrip())] = 0
+        packetDict[str(mString.rstrip())] = ""
+        self.monitorStrings[ip] = newDict
+        self.previousPacket[ip] = packetDict
+    monitoredStringsFile.close()
 
-    with open('/root/pox/ext/banned-ports.txt', 'r') as f:
-      for port in f:
-        self.banned_ports.add(int(port.rstrip()))
-
-    with open('/root/pox/ext/banned-domains.txt', 'r') as f:
-      for domain in f:
-        self.banned_domains.add(str(domain.rstrip()))
-
-    with open('/root/pox/ext/monitored-strings.txt', 'r') as f:
-      for pair in f:
-        ip, string = pair.split(':')
-        string = string.rstrip()
-        if ip not in self.monitor_strings.keys():
-          self.monitor_strings[ip] = dict()
-          self.prev_packet[ip] = dict()
-
-        self.monitor_strings[ip][string] = 0
-        self.prev_packet[ip][string] = ""
-   
     log.debug("Firewall initialized.")
 
   def _handle_ConnectionIn (self, event, flow, packet):
@@ -43,7 +60,7 @@ class Firewall (object):
     You can alter what happens with the connection by altering the
     action property of the event.
     """
-    if flow.dstport in self.banned_ports:
+    if flow.dstport in self.bannedPorts:
       log.debug("Denied connection [" + str(flow.src) + ":" + str(flow.srcport) + "," + str(flow.dst) + ":" + str(flow.dstport) + "]" )
       event.action.forward = False
     else:
@@ -57,16 +74,17 @@ class Firewall (object):
     handler will be called when the first actual payload data
     comes across the connection.
     """
+    #log.debug(str(packet.payload.payload.payload))
     packetHostNameRegex = re.search('Host: ([^\s]+)', packet.payload.payload.payload)
     if packetHostNameRegex is None:
-      if flow.dst in self.monitor_strings.keys():
+      if flow.dst in self.monitorStrings.keys():
         log.debug("Monitored connection [" + str(flow.src) + ":" + str(flow.srcport) + "," + str(flow.dst) + ":" + str(flow.dstport) + "]" )
         event.action.monitor_forward = True
         event.action.monitor_backward = True
       log.debug("Allowed connection [" + str(flow.src) + ":" + str(flow.srcport) + "," + str(flow.dst) + ":" + str(flow.dstport) + "]" )
       event.action.forward = True
     packetHostName = packetHostNameRegex.group(0)[6:]
-    for domain in self.banned_domains:
+    for domain in self.bannedDomains:
       if domain == packetHostName:
         log.debug("Denied connection [" + str(flow.src) + ":" + str(flow.srcport) + "," + str(flow.dst) + ":" + str(flow.dstport) + "]" )
         event.action.forward = False
@@ -76,7 +94,7 @@ class Firewall (object):
           log.debug("Denied connection [" + str(flow.src) + ":" + str(flow.srcport) + "," + str(flow.dst) + ":" + str(flow.dstport) + "]" )
           event.action.forward = False
           return       
-    if flow.dst in self.monitor_strings.keys():
+    if flow.dst in self.monitorStrings.keys():
       log.debug("Monitored connection [" + str(flow.src) + ":" + str(flow.srcport) + "," + str(flow.dst) + ":" + str(flow.dstport) + "]" )
       event.action.monitor_forward = True
       event.action.monitor_backward = True
@@ -99,25 +117,25 @@ class Firewall (object):
     if ipAddress in self.timers.keys():
       self.timers[ipAddress].cancel()
 
-    currentDict = self.monitor_strings[str(ipAddress)]
+    currentDict = self.monitorStrings[str(ipAddress)]
     for searchString in currentDict.keys():
-      data = self.prev_packet[str(ipAddress)][searchString] + httpData
+      data = self.previousPacket[str(ipAddress)][searchString] + httpData
       log.debug("data" + data)
-      self.prev_packet[str(ipAddress)][searchString] = ""
+      self.previousPacket[str(ipAddress)][searchString] = ""
       searchStringSearchObj = re.findall('%s' % searchString, data)
       currentDict[searchString] += len(searchStringSearchObj)
-      log.debug("in Monitor: " + str(self.monitor_strings))
+      log.debug("in Monitor: " + str(self.monitorStrings))
       seenSoFar = ""
       httpIndex = data.rfind(searchString[0])
-      self.prev_packet[str(ipAddress)][searchString] += searchString[0]
+      self.previousPacket[str(ipAddress)][searchString] += searchString[0]
       if httpIndex >= 0:
         for searchStringIndex in range(1, len(searchString)): #remove -1 from this line since range is not inclusive
           if httpIndex + searchStringIndex >= len(data):
             break
           if data[httpIndex+searchStringIndex] == searchString[searchStringIndex] and searchStringIndex != len(searchString)-1: #keep negative 1 here (i'm pretty sure we didn't have it here when we were having problems, right?) because length-1 is last char in string, would explain why things weren't working before, without this it would never realize it found the entire string, so it would save the full word "bing"
-            self.prev_packet[str(ipAddress)][searchString] += searchString[searchStringIndex]
+            self.previousPacket[str(ipAddress)][searchString] += searchString[searchStringIndex]
           else:
-            self.prev_packet[str(ipAddress)][searchString] = ""
+            self.previousPacket[str(ipAddress)][searchString] = ""
             break    
 
       log.debug("timers")
@@ -129,7 +147,7 @@ class Firewall (object):
     writeFile = open('/root/pox/ext/counts.txt', 'a')
     line = str(ipAddress) + "," + str(destPort) + ","
     log.debug("line: " + line)
-    currentDict = self.monitor_strings[str(ipAddress)]
+    currentDict = self.monitorStrings[str(ipAddress)]
     log.debug("currentDict: " + str(currentDict))
     for searchString in currentDict.keys():
       val = currentDict[searchString]
