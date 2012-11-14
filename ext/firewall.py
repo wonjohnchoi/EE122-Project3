@@ -57,7 +57,7 @@ class Firewall (object):
   def extract_conn_info(self, packet):
     ipv4 = packet.payload
     tcp = ipv4.payload
-    dstip = str(flow.dstip)
+    dstip = str(ipv4.dstip)
     srcip = str(ipv4.srcip)
     srcport = str(tcp.srcport)
     dstport = str(tcp.dstport)
