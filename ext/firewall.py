@@ -82,12 +82,12 @@ class Firewall (object):
     unique_conn = self.extract_conn_info(packet)
     
     host_name_regex = re.search('Host: ([^\s]+)', packet.payload.payload.payload)
-    host_name = host_name_regex.group(0)[6:] if host_name_regex else None
+    host_name = host_name_regex.group(0)[6:] if host_name_regex else ""
 
     if self.debug: log.debug("Host: " + host_name)
 
     if not host_name:
-      if flow.dst in self.monitor_strings.keys():
+      if str(flow.dst) in self.monitor_strings.keys():
         if self.debug: log.debug("Monitoring connection " + self.str_conn(flow) + " | Host: " + host_name)
         event.action.monitor_forward = True
         event.action.monitor_backward = True
@@ -112,7 +112,7 @@ class Firewall (object):
           event.action.forward = False
           return
 
-    if flow.dst in self.monitor_strings.keys():
+    if str(flow.dst) in self.monitor_strings.keys():
       if self.debug: log.debug("Monitoring connection " + self.str_conn(flow) + " | Host: " + host_name)
       event.action.monitor_forward = True
       event.action.monitor_backward = True
@@ -136,10 +136,11 @@ class Firewall (object):
 
     ip_address = self.external_ip(unique_conn, reverse)
     port = self.external_port(unique_conn, reverse)
-
+    if self.debug: log.debug("data: " + str(packet.payload.payload.payload))
     for monitor_string in self.monitor_strings[ip_address].keys():
       data = self.prev_html_data[ip_address][monitor_string] + str(packet.payload.payload.payload)
-      if self.debug: log.debug("data" + data)
+      if self.debug: log.debug("prev: " + self.prev_html_data[ip_address][monitor_string])
+      
       self.prev_html_data[ip_address][monitor_string] = ""
       monitor_stringSearchObj = re.findall(monitor_string, data)
       self.monitor_strings[ip_address][monitor_string] += len(monitor_stringSearchObj)
@@ -169,13 +170,13 @@ class Firewall (object):
 
     count = ip_address + "," + port + "," + "%s,%s\n"
 
-    if self.debug: log.debug("self.monitor_strings[ip_address]: " + self.monitor_strings[ip_address])
+    if self.debug: log.debug("self.monitor_strings[ip_address]: " + str(self.monitor_strings[ip_address]))
     for monitor_string in self.monitor_strings[ip_address].keys():
       self.counts_file.write(count % (monitor_string, self.monitor_strings[ip_address][monitor_string]))
-      counts_file.flush()
+      self.counts_file.flush()
       self.monitor_strings[ip_address][monitor_string] = 0
 
-    if self.debug: log.debug("I wrote to the file")
+      if self.debug: log.debug("Writing..." + count % (monitor_string, self.monitor_strings[ip_address][monitor_string]))
     del self.timers[unique_conn]
     log.debug("I deleted a timer")
 #test
